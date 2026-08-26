@@ -1,13 +1,13 @@
 // ===== Firebase Configuration =====
 // Substitua pelos dados do SEU projeto Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyDtBk0dseecmWKwom1TATq3IfmIrz-ovZg",
-  authDomain: "appplayer-5a5e0.firebaseapp.com",
-  databaseURL: "https://appplayer-5a5e0-default-rtdb.firebaseio.com",
-  projectId: "appplayer-5a5e0",
-  storageBucket: "appplayer-5a5e0.firebasestorage.app",
-  messagingSenderId: "71483671543",
-  appId: "1:71483671543:web:09110f71dfb17864baa4f2"
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_PROJETO.firebaseapp.com",
+  databaseURL: "https://SEU_PROJETO.firebaseio.com",
+  projectId: "SEU_PROJETO",
+  storageBucket: "SEU_PROJETO.appspot.com",
+  messagingSenderId: "SEU_SENDER_ID",
+  appId: "SEU_APP_ID"
 };
 
 // Inicializa o Firebase
