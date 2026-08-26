@@ -5,8 +5,6 @@ let currentPlaylist = null;
 let currentIndex = 0;
 let isPlaying = false;
 let progressInterval = null;
-let wasPlayingBeforeHide = false;  // para retomar após tela travar / segundo plano
-let positionStateInterval = null;
 
 // Carrega a API do YouTube
 function loadYouTubeAPI() {
@@ -26,36 +24,19 @@ function loadYouTubeAPI() {
 
 /**
  * Abre o player com uma playlist
- * Importante: evita await longo para não quebrar o gesto do usuário (autoplay no mobile)
  */
-function openPlayer(playlist) {
+async function openPlayer(playlist) {
   currentPlaylist = playlist;
   currentIndex = 0;
 
-  // Troca de tela imediatamente (feedback visual rápido)
+  // Troca de tela
   document.getElementById('playlists-view').classList.remove('active');
   document.getElementById('player-view').classList.add('active');
   document.getElementById('current-playlist-name').textContent = playlist.name;
 
-  renderQueue();
-  setupMediaSession();
-  setupBackgroundHandlers();
+  await loadYouTubeAPI();
 
-  // Se a API já estiver carregada, cria/toca imediatamente (mantém o gesto do usuário)
-  if (window.YT && window.YT.Player) {
-    createOrPlayPlayer();
-  } else {
-    // Carrega a API e depois cria o player
-    loadYouTubeAPI().then(() => {
-      createOrPlayPlayer();
-    }).catch(err => {
-      console.error('Erro ao carregar YouTube API:', err);
-      alert('Erro ao carregar o player do YouTube. Tente novamente.');
-    });
-  }
-}
-
-function createOrPlayPlayer() {
+  // Cria ou reutiliza o player
   if (!player) {
     player = new YT.Player('youtube-player', {
       height: '100%',
@@ -65,11 +46,9 @@ function createOrPlayPlayer() {
         controls: 1,
         rel: 0,
         modestbranding: 1,
-        playsinline: 1,          // essencial para iOS e background
+        playsinline: 1,          // importante para iOS
         enablejsapi: 1,
-        origin: window.location.origin,
-        fs: 0,
-        iv_load_policy: 3
+        origin: window.location.origin
       },
       events: {
         onReady: onPlayerReady,
@@ -78,34 +57,15 @@ function createOrPlayPlayer() {
       }
     });
   } else {
-    // Player já existe → toca o vídeo atual
     playCurrentVideo();
-    // Força play (ajuda no mobile)
-    setTimeout(() => {
-      try {
-        if (player && player.playVideo) player.playVideo();
-      } catch (e) {}
-    }, 300);
   }
+
+  renderQueue();
+  setupMediaSession();
 }
 
 function onPlayerReady() {
   playCurrentVideo();
-  // Força play logo após o ready (importante no celular)
-  setTimeout(() => {
-    try {
-      if (player && player.playVideo) {
-        player.playVideo();
-      }
-    } catch (e) {}
-  }, 200);
-  setTimeout(() => {
-    try {
-      if (player && player.getPlayerState && player.getPlayerState() !== YT.PlayerState.PLAYING) {
-        player.playVideo();
-      }
-    } catch (e) {}
-  }, 800);
 }
 
 function onPlayerStateChange(event) {
@@ -113,32 +73,19 @@ function onPlayerStateChange(event) {
 
   if (state === YT.PlayerState.PLAYING) {
     isPlaying = true;
-    wasPlayingBeforeHide = true;
     updatePlayPauseButton();
     startProgressUpdater();
-    startPositionStateUpdater();
     updateMediaSessionPlaybackState('playing');
   } 
   else if (state === YT.PlayerState.PAUSED) {
     isPlaying = false;
-    // Se o usuário pausou manualmente enquanto a tela está visível,
-    // não queremos forçar o play depois
-    if (!document.hidden) {
-      wasPlayingBeforeHide = false;
-      stopAggressiveKeepAlive();
-    }
     updatePlayPauseButton();
     stopProgressUpdater();
-    stopPositionStateUpdater();
     updateMediaSessionPlaybackState('paused');
   } 
   else if (state === YT.PlayerState.ENDED) {
     // Vai para o próximo automaticamente
     playNext();
-  }
-  else if (state === YT.PlayerState.BUFFERING) {
-    // Mantém o estado de "tocando" enquanto bufferiza
-    updateMediaSessionPlaybackState('playing');
   }
 }
 
@@ -174,13 +121,10 @@ function playNext() {
     currentIndex++;
     playCurrentVideo();
   } else {
-    // Chegou ao fim → para
+    // Chegou ao fim → para ou volta pro início (aqui para)
     isPlaying = false;
-    wasPlayingBeforeHide = false;
     updatePlayPauseButton();
     stopProgressUpdater();
-    stopPositionStateUpdater();
-    updateMediaSessionPlaybackState('none');
   }
 }
 
@@ -203,24 +147,20 @@ function togglePlayPause() {
   if (!player) return;
 
   const state = player.getPlayerState();
-  if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING) {
-    wasPlayingBeforeHide = false; // pausa intencional
-    stopAggressiveKeepAlive();
+  if (state === YT.PlayerState.PLAYING) {
     player.pauseVideo();
   } else {
-    wasPlayingBeforeHide = true;
     player.playVideo();
   }
 }
 
 function updatePlayPauseButton() {
   const btn = document.getElementById('btn-play-pause');
-  if (btn) btn.textContent = isPlaying ? '⏸' : '▶';
+  btn.textContent = isPlaying ? '⏸' : '▶';
 }
 
 function renderQueue() {
   const list = document.getElementById('queue-list');
-  if (!list) return;
   list.innerHTML = '';
 
   if (!currentPlaylist) return;
@@ -264,14 +204,11 @@ function updateProgress() {
 
   if (duration > 0) {
     const percent = (current / duration) * 100;
-    const fill = document.getElementById('progress-fill');
-    if (fill) fill.style.width = percent + '%';
+    document.getElementById('progress-fill').style.width = percent + '%';
   }
 
-  const currentEl = document.getElementById('current-time');
-  const durationEl = document.getElementById('duration');
-  if (currentEl) currentEl.textContent = formatTime(current);
-  if (durationEl) durationEl.textContent = formatTime(duration);
+  document.getElementById('current-time').textContent = formatTime(current);
+  document.getElementById('duration').textContent = formatTime(duration);
 }
 
 function formatTime(seconds) {
@@ -300,17 +237,11 @@ function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
 
   navigator.mediaSession.setActionHandler('play', () => {
-    if (player) {
-      player.playVideo();
-      wasPlayingBeforeHide = true;
-    }
+    if (player) player.playVideo();
   });
 
   navigator.mediaSession.setActionHandler('pause', () => {
-    if (player) {
-      player.pauseVideo();
-      wasPlayingBeforeHide = false;
-    }
+    if (player) player.pauseVideo();
   });
 
   navigator.mediaSession.setActionHandler('previoustrack', () => {
@@ -321,29 +252,11 @@ function setupMediaSession() {
     playNext();
   });
 
-  // Seek (alguns navegadores / Android)
+  // Alguns navegadores suportam seek
   try {
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (player && details.seekTime != null) {
         player.seekTo(details.seekTime, true);
-      }
-    });
-  } catch (e) {}
-
-  try {
-    navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-      if (player && player.getCurrentTime) {
-        const skip = details.seekOffset || 10;
-        player.seekTo(Math.max(0, player.getCurrentTime() - skip), true);
-      }
-    });
-  } catch (e) {}
-
-  try {
-    navigator.mediaSession.setActionHandler('seekforward', (details) => {
-      if (player && player.getCurrentTime) {
-        const skip = details.seekOffset || 10;
-        player.seekTo(player.getCurrentTime() + skip, true);
       }
     });
   } catch (e) {}
@@ -357,8 +270,6 @@ function updateMediaSessionMetadata(video) {
     artist: currentPlaylist ? currentPlaylist.name : 'YT Playlist',
     album: 'Playlist',
     artwork: [
-      { src: `https://i.ytimg.com/vi/${video.id}/default.jpg`, sizes: '120x90', type: 'image/jpeg' },
-      { src: `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
       { src: `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' }
     ]
   });
@@ -370,166 +281,12 @@ function updateMediaSessionPlaybackState(state) {
   }
 }
 
-// Atualiza a posição na tela de bloqueio (progresso)
-function startPositionStateUpdater() {
-  stopPositionStateUpdater();
-  positionStateInterval = setInterval(updatePositionState, 1000);
-}
-
-function stopPositionStateUpdater() {
-  if (positionStateInterval) {
-    clearInterval(positionStateInterval);
-    positionStateInterval = null;
-  }
-}
-
-function updatePositionState() {
-  if (!('mediaSession' in navigator) || !player || !player.getCurrentTime || !player.getDuration) return;
-
-  try {
-    const duration = player.getDuration() || 0;
-    const position = player.getCurrentTime() || 0;
-    if (duration > 0) {
-      navigator.mediaSession.setPositionState({
-        duration: duration,
-        playbackRate: player.getPlaybackRate ? player.getPlaybackRate() : 1,
-        position: Math.min(position, duration)
-      });
-    }
-  } catch (e) {
-    // Alguns navegadores não suportam setPositionState
-  }
-}
-
-// ===== Background / Tela bloqueada (modo agressivo) =====
-let keepAliveInterval = null;
-const RETRY_DELAYS = [100, 300, 600, 1000, 1500, 2500, 4000]; // tentativas escalonadas
-
-function forcePlay() {
-  if (!player || !wasPlayingBeforeHide) return;
-  try {
-    const state = player.getPlayerState();
-    // Só força play se não estiver tocando nem bufferizando
-    if (state !== YT.PlayerState.PLAYING && state !== YT.PlayerState.BUFFERING) {
-      player.playVideo();
-    }
-  } catch (e) {}
-}
-
-function startAggressiveKeepAlive() {
-  stopAggressiveKeepAlive();
-
-  // Várias tentativas rápidas no começo
-  RETRY_DELAYS.forEach((delay) => {
-    setTimeout(forcePlay, delay);
-  });
-
-  // Depois fica tentando periodicamente enquanto estiver em background
-  keepAliveInterval = setInterval(() => {
-    if (document.hidden && wasPlayingBeforeHide) {
-      forcePlay();
-    } else if (!document.hidden) {
-      // Já voltou ao primeiro plano → para o keep-alive agressivo
-      stopAggressiveKeepAlive();
-    }
-  }, 2000);
-}
-
-function stopAggressiveKeepAlive() {
-  if (keepAliveInterval) {
-    clearInterval(keepAliveInterval);
-    keepAliveInterval = null;
-  }
-}
-
-function setupBackgroundHandlers() {
-  // Evita registrar múltiplas vezes
-  if (window._bgHandlersSetup) return;
-  window._bgHandlersSetup = true;
-
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-
-  // pagehide / pageshow (bfcache e alguns Android)
-  window.addEventListener('pagehide', () => {
-    if (isPlaying || wasPlayingBeforeHide) {
-      wasPlayingBeforeHide = true;
-      startAggressiveKeepAlive();
-    }
-  });
-
-  window.addEventListener('pageshow', (event) => {
-    if (wasPlayingBeforeHide && player) {
-      forcePlay();
-      // Mais algumas tentativas
-      setTimeout(forcePlay, 200);
-      setTimeout(forcePlay, 600);
-      setTimeout(forcePlay, 1200);
-    }
-  });
-
-  // Eventos de freeze/resume (Chrome Android)
-  document.addEventListener('freeze', () => {
-    if (isPlaying || wasPlayingBeforeHide) {
-      wasPlayingBeforeHide = true;
-      startAggressiveKeepAlive();
-    }
-  });
-
-  document.addEventListener('resume', () => {
-    if (wasPlayingBeforeHide && player) {
-      forcePlay();
-      setTimeout(forcePlay, 300);
-      setTimeout(forcePlay, 800);
-    }
-  });
-
-  // Alguns aparelhos disparam blur
-  window.addEventListener('blur', () => {
-    if (isPlaying) {
-      wasPlayingBeforeHide = true;
-      startAggressiveKeepAlive();
-    }
-  });
-
-  window.addEventListener('focus', () => {
-    if (wasPlayingBeforeHide) {
-      forcePlay();
-    }
-  });
-}
-
-function handleVisibilityChange() {
-  if (!player) return;
-
-  if (document.hidden) {
-    // Tela travou ou app foi para segundo plano
-    if (isPlaying || wasPlayingBeforeHide) {
-      wasPlayingBeforeHide = true;
-      startAggressiveKeepAlive();
-    }
-  } else {
-    // Voltou a ficar visível
-    stopAggressiveKeepAlive();
-    if (wasPlayingBeforeHide) {
-      forcePlay();
-      setTimeout(forcePlay, 200);
-      setTimeout(forcePlay, 500);
-      setTimeout(forcePlay, 1000);
-    }
-  }
-}
-
 // Voltar para a lista
 function closePlayer() {
   if (player && player.pauseVideo) {
     player.pauseVideo();
   }
-  isPlaying = false;
-  wasPlayingBeforeHide = false;
   stopProgressUpdater();
-  stopPositionStateUpdater();
-  stopAggressiveKeepAlive();
-  updateMediaSessionPlaybackState('none');
 
   document.getElementById('player-view').classList.remove('active');
   document.getElementById('playlists-view').classList.add('active');

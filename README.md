@@ -100,29 +100,12 @@ Você pode gerar em: https://favicon.io ou qualquer gerador de ícones PWA.
 5. Clique na playlist para tocar
 6. No celular: coloque na tela inicial (Adicionar à tela inicial) para usar como app
 
-## Funcionamento em segundo plano e com tela bloqueada
+## Funcionamento com tela desligada
 
-O app usa:
-
-- **Media Session API** → controles na tela de bloqueio (play/pause, próximo, anterior, seek)
-- **YouTube IFrame API** com `playsinline`
-- Handlers de `visibilitychange`, `pagehide`/`pageshow` e eventos de freeze/resume para tentar manter a reprodução quando a tela trava ou o app vai para segundo plano
-- Atualização da posição (progresso) na tela de bloqueio
-
-### Compatibilidade real
-
-| Plataforma              | Comportamento                                                                 |
-|-------------------------|-------------------------------------------------------------------------------|
-| **Android Chrome**      | Melhor suporte. Costuma continuar tocando com tela bloqueada e controles na lock screen |
-| **Android outros**      | Variável (depende do navegador)                                               |
-| **iOS Safari / Chrome** | Limitado. A Apple restringe bastante mídia em segundo plano. Pode pausar ao travar a tela |
-| **Desktop**             | Funciona bem (Chrome/Edge/Firefox)                                            |
-
-**Dicas para melhor experiência no celular:**
-1. Use o **Chrome** no Android
-2. Adicione o app na tela inicial (PWA) → abre em modo standalone
-3. Não force o fechamento do app pelo gerenciador de tarefas enquanto estiver tocando
-4. Mantenha o volume de mídia ligado (não só o de notificação)
+- Usa a **Media Session API** (controles aparecem na tela de bloqueio)
+- O YouTube IFrame API mantém o áudio tocando
+- Funciona melhor no **Android Chrome**
+- No iOS o comportamento é mais limitado por restrições da Apple
 
 ## Próximas melhorias possíveis
 
@@ -131,7 +114,6 @@ O app usa:
 - Modo aleatório / repetir
 - Autenticação Firebase (playlists privadas)
 - Melhor tratamento de erros de vídeo
-
 
 ---
 
