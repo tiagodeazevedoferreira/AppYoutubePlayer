@@ -26,19 +26,36 @@ function loadYouTubeAPI() {
 
 /**
  * Abre o player com uma playlist
+ * Importante: evita await longo para não quebrar o gesto do usuário (autoplay no mobile)
  */
-async function openPlayer(playlist) {
+function openPlayer(playlist) {
   currentPlaylist = playlist;
   currentIndex = 0;
 
-  // Troca de tela
+  // Troca de tela imediatamente (feedback visual rápido)
   document.getElementById('playlists-view').classList.remove('active');
   document.getElementById('player-view').classList.add('active');
   document.getElementById('current-playlist-name').textContent = playlist.name;
 
-  await loadYouTubeAPI();
+  renderQueue();
+  setupMediaSession();
+  setupBackgroundHandlers();
 
-  // Cria ou reutiliza o player
+  // Se a API já estiver carregada, cria/toca imediatamente (mantém o gesto do usuário)
+  if (window.YT && window.YT.Player) {
+    createOrPlayPlayer();
+  } else {
+    // Carrega a API e depois cria o player
+    loadYouTubeAPI().then(() => {
+      createOrPlayPlayer();
+    }).catch(err => {
+      console.error('Erro ao carregar YouTube API:', err);
+      alert('Erro ao carregar o player do YouTube. Tente novamente.');
+    });
+  }
+}
+
+function createOrPlayPlayer() {
   if (!player) {
     player = new YT.Player('youtube-player', {
       height: '100%',
@@ -51,7 +68,7 @@ async function openPlayer(playlist) {
         playsinline: 1,          // essencial para iOS e background
         enablejsapi: 1,
         origin: window.location.origin,
-        fs: 0,                   // evita fullscreen nativo que atrapalha background
+        fs: 0,
         iv_load_policy: 3
       },
       events: {
@@ -61,16 +78,34 @@ async function openPlayer(playlist) {
       }
     });
   } else {
+    // Player já existe → toca o vídeo atual
     playCurrentVideo();
+    // Força play (ajuda no mobile)
+    setTimeout(() => {
+      try {
+        if (player && player.playVideo) player.playVideo();
+      } catch (e) {}
+    }, 300);
   }
-
-  renderQueue();
-  setupMediaSession();
-  setupBackgroundHandlers();
 }
 
 function onPlayerReady() {
   playCurrentVideo();
+  // Força play logo após o ready (importante no celular)
+  setTimeout(() => {
+    try {
+      if (player && player.playVideo) {
+        player.playVideo();
+      }
+    } catch (e) {}
+  }, 200);
+  setTimeout(() => {
+    try {
+      if (player && player.getPlayerState && player.getPlayerState() !== YT.PlayerState.PLAYING) {
+        player.playVideo();
+      }
+    } catch (e) {}
+  }, 800);
 }
 
 function onPlayerStateChange(event) {
